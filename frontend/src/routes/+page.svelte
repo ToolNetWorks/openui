@@ -247,7 +247,6 @@
         <label class="check-row"><input type="checkbox" bind:checked={providerDefault}/> Đặt làm mô hình mặc định</label>
         <div class="provider-actions"><button type="submit" class="primary" disabled={savingProvider||!providerName.trim()||!providerUrl.trim()||!providerModelId.trim()}><Save size={17}/> {savingProvider?'Đang lưu...':editingProvider?'Lưu thay đổi':'Thêm mô hình'}</button>{#if editingProvider}<button type="button" class="subtle-button" onclick={clearProviderForm}>Hủy sửa</button>{/if}</div>
        </form>
-       <div class="settings-card"><p class="muted">API key không được gửi lại cho trình duyệt khi tải cấu hình. Website lưu key được mã hóa trong <code>data/chat.db</code>; giữ an toàn cả file <code>data/providers.key</code> khi backup hoặc chuyển VPS. Bài kiểm tra chỉ gọi <code>/models</code>, không tiêu hao token chat nhưng không đảm bảo model suy luận thành công.</p></div>
       {:else if settingsTab==='skills'}
        <div class="panel-header"><BookOpen size={23}/><h1>Skills</h1></div><p>Quản lý nội dung SKILL.md. Skill được bật sẽ cung cấp hướng dẫn cho model khi trò chuyện.</p>
        <div class="settings-card"><label for="skill-name">Tên skill</label><input id="skill-name" placeholder="Tên skill" bind:value={skillName}/><label for="skill-body">Nội dung SKILL.md</label><textarea id="skill-body" rows="8" placeholder="Nội dung SKILL.md" bind:value={skillBody}></textarea><button class="primary" onclick={saveSkill} disabled={!skillName.trim()||!skillBody.trim()}>Thêm skill</button></div>
