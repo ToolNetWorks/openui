@@ -1,16 +1,41 @@
 <script lang="ts">
  import {onMount, tick} from 'svelte';
- import {Menu,SquarePen,Plus,ArrowUp,Trash2,X,Settings,PlugZap,BookOpen,ChevronDown,LogOut,Image as ImageIcon,LoaderCircle,Search,Mic,AudioLines,PenLine,Globe,MessageSquare,Camera,Check,RefreshCw,ChevronLeft,ChevronRight,UserRound,Wrench,Boxes,Brain,HardDrive,Save,ShieldCheck,Info,Database} from 'lucide-svelte';
+ import {Menu,SquarePen,Plus,ArrowUp,Trash2,X,Settings,PlugZap,BookOpen,ChevronDown,LogOut,Image as ImageIcon,LoaderCircle,Search,Mic,AudioLines,PenLine,Globe,MessageSquare,Camera,Check,RefreshCw,ChevronLeft,ChevronRight,UserRound,Wrench,Boxes,Brain,HardDrive,Save,ShieldCheck,Info,Database, Cpu, Pencil} from 'lucide-svelte';
  import {api,json} from '$lib/api';
- type SettingsTab='overview'|'skills'|'mcp'|'personalization'|'tools'|'plugins'|'memory';
+ type SettingsTab='overview'|'models'|'skills'|'mcp'|'personalization'|'tools'|'plugins'|'memory';
+ type ModelOption={id:string;name:string;model_id:string;is_default:boolean;source:string};
+ type Provider={id:string;name:string;model_id:string;base_url:string;enabled:boolean;is_default:boolean;has_api_key:boolean;created:number;updated:number};
  type Chat={id:string;title:string};type Msg={id?:string;role:string;content:string;attachments?:{id:string;filename:string;mime:string}[]};
- let showModelMenu=false, showAttachMenu=false, searching=false, searchText='', dismissedSuggestions:number[]=[], dictating=false, recognizer:any=null, authed=false,checked=false,password='',loginError='',chats:Chat[]=[],active='',messages:Msg[]=[],input='',models:string[]=['qwen35-abliterated'],model='qwen35-abliterated',online=false,sidebar=false,mode:'chat'|'skills'|'mcp'|'settings'='chat',busy=false,error='',pending:{id:string;filename:string;mime:string}[]=[],fileInput:HTMLInputElement,cameraInput:HTMLInputElement,scrollArea:HTMLElement,skills:any[]=[],servers:any[]=[],skillName='',skillBody='',mcpName='',mcpUrl='',mcpToken='',toolsByServer:Record<string,any[]>={},settingsTab:SettingsTab='overview',profileName='OpenUI',customInstructions='',responseStyle='normal',savingPrefs=false,prefsSaved=false,memories:{id:string;content:string;created:number}[]=[],memoryEnabled=false,newMemory='',storageInfo:{chats:number;messages:number;photos:number;photo_bytes:number;db_bytes:number;memories:number}|null=null;
- onMount(async()=>{try{authed=(await api('/me')).authenticated;if(authed)await init()}catch(e){error=String(e)}finally{checked=true}});
+ let showModelMenu=false, showAttachMenu=false, searching=false, searchText='', dismissedSuggestions:number[]=[], dictating=false, recognizer:any=null, authed=false,checked=false,password='',loginError='',chats:Chat[]=[],active='',messages:Msg[]=[],input='',modelOptions:ModelOption[]=[],model='',online:boolean|null=null,sidebar=false,mode:'chat'|'skills'|'mcp'|'settings'='chat',busy=false,error='',pending:{id:string;filename:string;mime:string}[]=[],fileInput:HTMLInputElement,cameraInput:HTMLInputElement,scrollArea:HTMLElement,skills:any[]=[],servers:any[]=[],skillName='',skillBody='',mcpName='',mcpUrl='',mcpToken='',toolsByServer:Record<string,any[]>={},settingsTab:SettingsTab='overview',profileName='OpenUI',customInstructions='',responseStyle='normal',savingPrefs=false,prefsSaved=false,memories:{id:string;content:string;created:number}[]=[],memoryEnabled=false,newMemory='',storageInfo:{chats:number;messages:number;photos:number;photo_bytes:number;db_bytes:number;memories:number}|null=null;
+ let providers:Provider[]=[], editingProvider='',providerName='',providerUrl='',providerModelId='',providerKey='',providerEnabled=true,providerDefault=false,providerClearKey=false,savingProvider=false,testingProvider='',testResults:Record<string,{ok:boolean;http_status:number|null;model_found?:boolean;model_count?:number;note:string}>={};
+ onMount(async()=>{try{model=window.localStorage.getItem('openui_selected_model')||'';authed=(await api('/me')).authenticated;if(authed)await init()}catch(e){error=String(e)}finally{checked=true}});
  async function init(){await Promise.all([loadChats(),loadModels()]);try{await loadPreferences()}catch{}}
  async function login(){loginError='';try{await api('/login',json({password}));authed=true;password='';await init()}catch(e){loginError=String(e)}}
  async function logout(){await api('/logout',{method:'POST'});authed=false;messages=[];active=''}
  async function loadChats(){chats=await api('/chats')}
- async function loadModels(){try{const data=await api('/models');models=data.models;online=data.online;if(!models.includes(model))model=models[0]}catch{online=false}}
+ async function loadModels(){
+  try{
+   const data=await api('/models');modelOptions=data.options||[];
+   if(!modelOptions.some(o=>o.id===model)){model=data.default||modelOptions[0]?.id||'';online=null}
+   if(model)window.localStorage.setItem('openui_selected_model',model);
+  }catch(e){online=null;error=String(e)}
+ }
+ function chooseModel(id:string){model=id;online=testResults[id]?.ok??null;showModelMenu=false;window.localStorage.setItem('openui_selected_model',id)}
+ function modelName(id:string){return modelOptions.find(o=>o.id===id)?.name||'Chọn mô hình'}
+ async function loadProviders(){const r=await api('/providers');providers=r.items}
+ function clearProviderForm(){editingProvider='';providerName='';providerUrl='';providerModelId='';providerKey='';providerEnabled=true;providerDefault=false;providerClearKey=false}
+ function editProvider(p:Provider){editingProvider=p.id;providerName=p.name;providerUrl=p.base_url;providerModelId=p.model_id;providerKey='';providerEnabled=p.enabled;providerDefault=p.is_default;providerClearKey=false;setTimeout(()=>document.getElementById('provider-name')?.scrollIntoView({behavior:'smooth',block:'center'}),50)}
+ async function saveProvider(){
+  if(savingProvider)return;savingProvider=true;error='';
+  const body={name:providerName.trim(),base_url:providerUrl.trim(),model_id:providerModelId.trim(),api_key:providerKey,enabled:providerEnabled,is_default:providerDefault,clear_api_key:providerClearKey};
+  try{
+   await api(editingProvider?'/providers/'+editingProvider:'/providers',{method:editingProvider?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+   clearProviderForm();await Promise.all([loadProviders(),loadModels()]);
+  }catch(e){error=String(e)}finally{savingProvider=false}
+ }
+ async function deleteProvider(id:string){if(!confirm('Xóa cấu hình mô hình này? Lịch sử chat không bị xóa.'))return;try{await api('/providers/'+id,{method:'DELETE'});if(editingProvider===id)clearProviderForm();await Promise.all([loadProviders(),loadModels()])}catch(e){error=String(e)}}
+ async function testProvider(id:string){testingProvider=id;error='';try{const r=await api('/providers/'+id+'/test',{method:'POST'});testResults={...testResults,[id]:r};if(model===id)online=r.ok}catch(e){error=String(e);if(model===id)online=false}finally{testingProvider=''}}
+
  async function newChat(){active='';messages=[];pending=[];input='';mode='chat';sidebar=false;showAttachMenu=false;dismissedSuggestions=[]}
  async function openChat(id:string){const data=await api('/chats/'+id);active=id;messages=data.messages;mode='chat';sidebar=false;showModelMenu=false;setTimeout(scrollBottom,30)}
  async function deleteChat(id:string){if(!confirm('Xóa cuộc trò chuyện này?'))return;await api('/chats/'+id,{method:'DELETE'});if(active===id)await newChat();await loadChats()}
@@ -38,6 +63,7 @@
  async function openSettingsTab(tab:SettingsTab){
   mode='settings';settingsTab=tab;sidebar=false;error='';prefsSaved=false;
   try{
+   if(tab==='models'){await Promise.all([loadProviders(),loadModels()]);}
    if(tab==='skills')skills=await api('/extensions/skills');
    if(tab==='mcp'||tab==='tools')servers=await api('/extensions/mcp');
    if(tab==='personalization')await loadPreferences();
@@ -108,19 +134,19 @@
     <button class="plain-icon menu-button" aria-label="Mở menu" onclick={()=>sidebar=!sidebar}><Menu size={24}/></button>
     <div class="model-switcher">
      <button class="brand-button" aria-label="Chọn mô hình" aria-expanded={showModelMenu} onclick={()=>{showModelMenu=!showModelMenu;showAttachMenu=false}}>
-      OpenUI <ChevronDown size={18} strokeWidth={2}/>
+      <span class="current-model-name">{modelName(model)}</span> <ChevronDown size={18} strokeWidth={2}/>
      </button>
      {#if showModelMenu}
       <div class="model-popover" role="menu">
        <div class="popover-title">Chọn mô hình</div>
-       {#each models as m}<button class="model-option" onclick={()=>{model=m;showModelMenu=false}}><span>{m}</span>{#if model===m}<Check size={17}/>{/if}</button>{/each}
-       <div class="model-status"><span class:online class="status-dot"></span> {online?'Model trực tuyến':'Model ngoại tuyến'}</div>
-       <button class="refresh-models" onclick={async()=>{await loadModels();showModelMenu=false}}><RefreshCw size={15}/> Kiểm tra kết nối</button>
+       {#each modelOptions as m(m.id)}<button class="model-option" onclick={()=>chooseModel(m.id)}><span>{m.name}<small class="model-id-hint">{m.model_id}</small></span>{#if model===m.id}<Check size={17}/>{/if}</button>{/each}{#if !modelOptions.length}<p class="muted" style="padding:8px 12px">Chưa có mô hình nào được bật.</p>{/if}
+       <div class="model-status"><span class:online={online===true} class="status-dot"></span> {online===true?'API phản hồi':online===false?'API không kết nối':'Chưa kiểm tra API'}</div>
+       <button class="refresh-models" onclick={async()=>{showModelMenu=false;await openSettingsTab('models')}}><Settings size={15}/> Quản lý mô hình và API</button>
       </div>
      {/if}
     </div>
     <div class="top-actions">
-     {#if !online}<span class="offline-dot" title="Model đang tắt"></span>{/if}
+     {#if online===false}<span class="offline-dot" title="API kiểm tra không thành công"></span>{/if}
      <button class="plain-icon new-chat-icon" aria-label="Tạo đoạn chat mới" title="Chat mới" onclick={newChat}><SquarePen size={22}/></button>
     </div>
    </header>
@@ -183,6 +209,7 @@
       <div class="panel-header settings-title"><Settings size={24}/><h1>Cài đặt</h1></div>
       <p class="settings-intro">Quản lý trải nghiệm OpenUI, công cụ và dữ liệu của bạn.</p>
       <div class="settings-list" aria-label="Danh mục cài đặt">
+       <button class="settings-nav" onclick={()=>openSettingsTab('models')}><span class="settings-icon"><Cpu size={21}/></span><span class="settings-meta"><strong>Mô hình</strong><small>Quản lý URL, API key, Model ID, mô hình mặc định</small></span><ChevronRight size={20}/></button>
        <button class="settings-nav" onclick={()=>openSettingsTab('personalization')}><span class="settings-icon"><UserRound size={21}/></span><span class="settings-meta"><strong>Cá nhân hoá</strong><small>Tên, phong cách trả lời và hướng dẫn tùy chỉnh</small></span><ChevronRight size={20}/></button>
        <button class="settings-nav" onclick={()=>openSettingsTab('memory')}><span class="settings-icon"><Brain size={21}/></span><span class="settings-meta"><strong>Bộ nhớ & lưu trữ</strong><small>Ghi nhớ, lịch sử và dung lượng dữ liệu</small></span><ChevronRight size={20}/></button>
        <button class="settings-nav" onclick={()=>openSettingsTab('mcp')}><span class="settings-icon"><PlugZap size={21}/></span><span class="settings-meta"><strong>MCP Servers</strong><small>Thêm và kiểm tra kết nối MCP từ xa</small></span><ChevronRight size={20}/></button>
@@ -190,10 +217,38 @@
        <button class="settings-nav" onclick={()=>openSettingsTab('tools')}><span class="settings-icon"><Wrench size={21}/></span><span class="settings-meta"><strong>Tools</strong><small>Xem công cụ từ các MCP server đã kết nối</small></span><ChevronRight size={20}/></button>
        <button class="settings-nav" onclick={()=>openSettingsTab('plugins')}><span class="settings-icon"><Boxes size={21}/></span><span class="settings-meta"><strong>Plugins</strong><small>Trạng thái tích hợp plugin và khả năng mở rộng</small></span><ChevronRight size={20}/></button>
       </div>
-      <div class="settings-card compact-card"><div class="status-line"><span class:online class="status-dot"></span><span>Model: <strong>{model}</strong></span><span class="muted">{online?'Trực tuyến':'Ngoại tuyến'}</span></div><button class="subtle-button" onclick={loadModels}><RefreshCw size={16}/> Kiểm tra kết nối</button></div>
+      <div class="settings-card compact-card"><div class="status-line"><span class:online={online===true} class="status-dot"></span><span>Model: <strong>{modelName(model)}</strong></span><span class="muted">{online===true?'API phản hồi':online===false?'Không kết nối':'Chưa kiểm tra'}</span></div><button class="subtle-button" onclick={()=>openSettingsTab('models')}><Settings size={16}/> Quản lý</button></div>
      {:else}
       <button class="settings-back" onclick={()=>openSettingsTab('overview')}><ChevronLeft size={20}/> Cài đặt</button>
-      {#if settingsTab==='skills'}
+      {#if settingsTab==='models'}
+       <div class="panel-header"><Cpu size={23}/><h1>Mô hình</h1></div>
+       <p>Quản lý nhiều API tương thích OpenAI: Colab, Groq, OpenRouter, OpenAI, Ollama qua gateway, hoặc máy chủ riêng. Có thể chọn một model mặc định.</p>
+       {#each providers as p(p.id)}
+        <div class="entry provider-row">
+         <div class="provider-info"><strong>{p.name}</strong><small>{p.model_id}</small><small class="provider-url">{p.base_url}</small><div class="provider-badges">{#if p.is_default}<span>Mặc định</span>{/if}<span class:disabled-tag={!p.enabled}>{p.enabled?'Đang bật':'Đang tắt'}</span><span>{p.has_api_key?'Đã lưu API key':'Không dùng key'}</span></div>
+          {#if testResults[p.id]}<small class:probe-ok={testResults[p.id].ok} class:probe-error={!testResults[p.id].ok}>{testResults[p.id].note}{#if testResults[p.id].ok&&testResults[p.id].model_count} · {testResults[p.id].model_count} model trên API{/if}{#if testResults[p.id].ok&&!testResults[p.id].model_found} · Model ID chưa xác nhận{/if}</small>{/if}
+         </div>
+         <div class="provider-actions">
+          <button class="subtle-button" disabled={testingProvider===p.id} onclick={()=>testProvider(p.id)} title="Kiểm tra kết nối API">{#if testingProvider===p.id}<LoaderCircle class="spin" size={15}/>{:else}<RefreshCw size={15}/>{/if} Kiểm tra</button>
+          <button class="icon-outline" aria-label={'Sửa '+p.name} title="Sửa cấu hình" onclick={()=>editProvider(p)}><Pencil size={17}/></button>
+          <button class="icon-outline" aria-label={'Xóa '+p.name} title="Xóa model" onclick={()=>deleteProvider(p.id)}><Trash2 size={17}/></button>
+         </div>
+        </div>
+       {/each}
+       {#if !providers.length}<div class="settings-card"><p>Chưa có mô hình lưu trong database. Cấu hình Colab cũ trong <code>.env</code> vẫn được dùng tạm cho đến khi bạn thêm model đầu tiên.</p></div>{/if}
+       <form class="settings-card provider-form" onsubmit={(e)=>{e.preventDefault();saveProvider()}}>
+        <h2>{editingProvider?'Chỉnh sửa mô hình':'Thêm mô hình mới'}</h2>
+        <label for="provider-name">Tên hiển thị</label><input id="provider-name" placeholder="Ví dụ: Groq — Llama 3.3" maxlength="100" bind:value={providerName} required/>
+        <label for="provider-url">API Base URL</label><input id="provider-url" type="url" placeholder="https://api.groq.com/openai/v1" bind:value={providerUrl} required/><small class="muted">Nhập Base URL kết thúc bằng /v1. Cho phép http://127.0.0.1 cho model local.</small>
+        <label for="provider-model-id">Model ID chính xác</label><input id="provider-model-id" placeholder="Ví dụ: llama-3.3-70b-versatile" maxlength="180" bind:value={providerModelId} required/>
+        <label for="provider-secret">API key {editingProvider?'(để trống nếu giữ key cũ)':'(có thể để trống nếu máy chủ không yêu cầu)'}</label><input id="provider-secret" type="password" autocomplete="new-password" placeholder="••••••••••••••••" bind:value={providerKey}/>
+        {#if editingProvider}<label class="check-row"><input type="checkbox" bind:checked={providerClearKey}/> Xóa API key đã lưu</label>{/if}
+        <label class="check-row"><input type="checkbox" bind:checked={providerEnabled}/> Bật mô hình này</label>
+        <label class="check-row"><input type="checkbox" bind:checked={providerDefault}/> Đặt làm mô hình mặc định</label>
+        <div class="provider-actions"><button type="submit" class="primary" disabled={savingProvider||!providerName.trim()||!providerUrl.trim()||!providerModelId.trim()}><Save size={17}/> {savingProvider?'Đang lưu...':editingProvider?'Lưu thay đổi':'Thêm mô hình'}</button>{#if editingProvider}<button type="button" class="subtle-button" onclick={clearProviderForm}>Hủy sửa</button>{/if}</div>
+       </form>
+       <div class="settings-card"><p class="muted">API key không được gửi lại cho trình duyệt khi tải cấu hình. Website lưu key được mã hóa trong <code>data/chat.db</code>; giữ an toàn cả file <code>data/providers.key</code> khi backup hoặc chuyển VPS. Bài kiểm tra chỉ gọi <code>/models</code>, không tiêu hao token chat nhưng không đảm bảo model suy luận thành công.</p></div>
+      {:else if settingsTab==='skills'}
        <div class="panel-header"><BookOpen size={23}/><h1>Skills</h1></div><p>Quản lý nội dung SKILL.md. Skill được bật sẽ cung cấp hướng dẫn cho model khi trò chuyện.</p>
        <div class="settings-card"><label for="skill-name">Tên skill</label><input id="skill-name" placeholder="Tên skill" bind:value={skillName}/><label for="skill-body">Nội dung SKILL.md</label><textarea id="skill-body" rows="8" placeholder="Nội dung SKILL.md" bind:value={skillBody}></textarea><button class="primary" onclick={saveSkill} disabled={!skillName.trim()||!skillBody.trim()}>Thêm skill</button></div>
        {#each skills as skill}<div class="entry"><div><strong>{skill.name}</strong><small>{skill.enabled?'Đang bật':'Đang tắt'}</small></div><button aria-label="Xóa skill" onclick={()=>removeSkill(skill.id)}><Trash2 size={18}/></button></div>{/each}
@@ -271,7 +326,7 @@ aside{width:275px;background:#0b0b0b;display:flex;flex-direction:column;padding:
 .main{display:flex;flex-direction:column;flex:1;min-width:0;background:#000}
 .topbar{height:64px;flex:0 0 64px;display:flex;align-items:center;padding:0 23px;gap:18px;position:relative;z-index:5}
 .menu-button{margin-left:-8px}
-.brand-button{display:flex;align-items:center;gap:6px;padding:5px 0;background:none;border:0;color:#f2f2f2;font-size:19px;font-weight:650;white-space:nowrap;letter-spacing:-.5px}
+.brand-button{display:flex;align-items:center;gap:6px;padding:5px 0;background:none;border:0;color:#f2f2f2;font-size:19px;font-weight:650;white-space:nowrap;letter-spacing:-.5px;max-width:min(55vw,345px);min-width:0}.brand-button :global(svg){flex-shrink:0}.current-model-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .model-switcher{position:relative;min-width:0}
 .top-actions{margin-left:auto;display:flex;align-items:center;gap:9px}
 .offline-dot,.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#858585;flex-shrink:0}
@@ -280,6 +335,7 @@ aside{width:275px;background:#0b0b0b;display:flex;flex-direction:column;padding:
 .popover-title{padding:9px 12px;color:#aaa;font-size:13px}
 .model-option,.refresh-models{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;border:0;background:none;color:#f0f0f0;border-radius:9px;padding:11px 12px;text-align:left;font-size:14px;overflow-wrap:anywhere}
 .model-option:hover,.refresh-models:hover{background:#363636}
+.model-id-hint{display:block;color:#999;font-size:11px;margin-top:5px;overflow-wrap:anywhere}
 .model-status{padding:10px 12px;color:#aaa;font-size:12px;border-top:1px solid #424242;display:flex;gap:9px;align-items:center}
 .refresh-models{justify-content:flex-start;font-size:12px}
 .chat{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;overscroll-behavior:contain;scrollbar-color:#383838 transparent}
@@ -339,6 +395,7 @@ aside{width:275px;background:#0b0b0b;display:flex;flex-direction:column;padding:
 .stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat-grid div{display:flex;flex-direction:column;gap:7px}.stat-grid strong{font-size:18px}.stat-grid small{font-size:11px;color:#aaa}
 .tool-server-line{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.tool-detail{padding:10px 0;border-top:1px solid #333;display:flex;flex-direction:column;gap:5px}.tool-detail small{color:#a9a9a9;font-size:12px;line-height:1.5}
 .tool-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.tool-badges span{background:#303030;color:#d0d0d0;border-radius:7px;padding:5px 7px;font-size:12px}
+.provider-row{display:flex;align-items:flex-start;flex-wrap:wrap;gap:14px}.provider-info{flex:1;min-width:210px}.provider-url{overflow-wrap:anywhere}.provider-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.provider-actions .primary{display:flex;align-items:center;gap:9px}.provider-row .provider-actions button{white-space:nowrap}.provider-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.provider-badges span{font-size:11px;background:#303030;border-radius:7px;padding:5px 7px;color:#ddd}.provider-badges .disabled-tag{opacity:.5}.icon-outline{display:inline-grid;place-items:center;min-width:35px;min-height:35px;border:1px solid #404040!important;border-radius:10px!important}.provider-form{margin-top:25px}.check-row{display:flex;align-items:center;gap:11px;font-weight:400!important;font-size:14px!important;color:#e1e1e1!important}.settings-card .check-row input{width:18px;height:18px;accent-color:#dedede;padding:0;flex-shrink:0}.probe-ok{color:#98d8a7!important}.probe-error{color:#f3a4a4!important}.provider-form code,.settings-card code{font-size:12px;overflow-wrap:anywhere}
 .notice-heading{display:flex;align-items:center;gap:10px}.settings-card h2{font-size:16px;margin:0}.text-button{color:#d8d8d8;text-decoration:underline;background:transparent;border:0;padding:3px}
 @media(max-width:760px){.settings-list{margin:16px 0}.settings-nav{min-height:64px}.settings-nav{padding:11px 9px}.settings-card{padding:16px}.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){

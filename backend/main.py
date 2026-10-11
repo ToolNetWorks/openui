@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 from extensions import router as extensions_router, tool_definitions, execute_tool, enabled_skill_text
 from settings_api import router as settings_router, memory_context
+from providers import router as providers_router, resolve_model, model_options
 
 app = FastAPI(docs_url=None, redoc_url=None)
 DB = os.getenv('OPENUI_DB', '/data/chat.db')
@@ -34,6 +35,7 @@ if Path('static').is_dir():
     app.mount('/static', StaticFiles(directory='static'), name='static')
 app.include_router(extensions_router)
 app.include_router(settings_router)
+app.include_router(providers_router)
 
 def token():
     ts = str(int(time.time()))
@@ -137,16 +139,11 @@ async def delete_attachment(aid:str,request:Request):
 @app.get('/api/models')
 async def models(request:Request):
     require(request)
-    base=os.getenv('OPENAI_BASE_URL','').rstrip('/')
-    fallback=os.getenv('OPENAI_MODEL','qwen35-abliterated')
-    headers={'Authorization':'Bearer '+os.getenv('OPENAI_API_KEY','')}
-    try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            r=await client.get(base+'/models',headers=headers)
-            r.raise_for_status()
-            names=[x['id'] for x in r.json().get('data',[]) if x.get('id')]
-            return {'models':names or [fallback],'online':True}
-    except Exception: return {'models':[fallback],'online':False}
+    options = model_options()
+    default = next((item['id'] for item in options if item['is_default']), options[0]['id'] if options else None)
+    # Listing never contacts remote APIs or implies that a model is online.
+    return {'models':[item['name'] for item in options], 'options':options, 'default':default,
+            'online':None}
 
 @app.post('/api/chats/{cid}/stream')
 async def stream(cid:str,request:Request):
@@ -156,7 +153,8 @@ async def stream(cid:str,request:Request):
     ids=data.get('attachment_ids',[])
     if not isinstance(ids,list) or len(ids)>4 or any(not isinstance(i,str) for i in ids): raise HTTPException(400,'Tối đa 4 ảnh')
     if (not content and not ids) or len(content)>30000: raise HTTPException(400,'Invalid message')
-    model=str(data.get('model') or os.getenv('OPENAI_MODEL','qwen35-abliterated'))
+    selected=str(data.get('model') or '')
+    provider = resolve_model(selected)
     with db() as c:
         chat=c.execute('SELECT id,title FROM chats WHERE id=?',(cid,)).fetchone()
         if not chat: raise HTTPException(404)
@@ -184,13 +182,14 @@ async def stream(cid:str,request:Request):
         full=''
         def event(obj): return 'data: '+json.dumps(obj,ensure_ascii=False)+'\n\n'
         try:
-            base=os.getenv('OPENAI_BASE_URL','http://127.0.0.1:18000/v1').rstrip('/')
-            headers={'Authorization':'Bearer '+os.getenv('OPENAI_API_KEY','')}
+            base=provider['base_url'].rstrip('/')
+            headers={'Authorization':'Bearer '+provider['api_key']} if provider['api_key'] else {}
+            model=provider['model_id']
             skills=enabled_skill_text()
             if skills: history.insert(0, {'role':'system','content':skills})
             user_context=memory_context()
             if user_context: history.insert(0, {'role':'system','content':user_context})
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120,connect=10)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120,connect=10),follow_redirects=False,trust_env=False) as client:
                 # MCP tools require a model supporting OpenAI tool calling.
                 defs=await tool_definitions()
                 for round_no in range(5):
@@ -238,5 +237,5 @@ async def stream(cid:str,request:Request):
                     c.execute('INSERT INTO messages VALUES (?,?,?,?,?)',(str(uuid.uuid4()),cid,'assistant',full,int(time.time())))
             yield event({'done':True})
         except Exception as e:
-            yield event({'error':'Không kết nối được API model. Kiểm tra Colab và SSH tunnel.'})
+            yield event({'error':'Không kết nối được API mô hình đã chọn. Kiểm tra URL, API key và trạng thái nhà cung cấp.'})
     return StreamingResponse(generator(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
