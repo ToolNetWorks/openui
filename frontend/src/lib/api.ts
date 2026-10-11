@@ -1,0 +1,2 @@
+export async function api(path:string,options:RequestInit={}){const res=await fetch('/api'+path,{credentials:'same-origin',...options});if(!res.ok){let m='HTTP '+res.status;try{const j=await res.json();m=j.detail||j.error||m}catch{}throw Error(String(m))}return res.json()}
+export const json=(data:unknown):RequestInit=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});

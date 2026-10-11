@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: toolnet-openui-api
+    restart: unless-stopped
+    network_mode: host
+    working_dir: /app
+    environment:
+      OPENUI_DB: /data/chat.db
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://127.0.0.1:18000/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-qwen35-abliterated}
+      OPENUI_MCP_ALLOW_EXECUTE: ${OPENUI_MCP_ALLOW_EXECUTE:-false}
+      OPENUI_PASSWORD: ${OPENUI_PASSWORD:?Set OPENUI_PASSWORD in .env}
+    volumes:
+      - ./data:/data
+    command: ["uvicorn","main:app","--host","127.0.0.1","--port","3004"]
+  frontend:
+    build: ./frontend
+    container_name: toolnet-openui-web
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      BACKEND_URL: http://127.0.0.1:3004
+      PORT: '3003'
+      HOST: 127.0.0.1
+    depends_on:
+      - backend
